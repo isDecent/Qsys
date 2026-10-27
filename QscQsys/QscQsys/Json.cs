@@ -199,6 +199,9 @@ namespace QscQsys
     {
         [JsonProperty]
         static public string jsonrpc = "2.0";
+        // An id makes the Core reply, which lets the client detect a dead connection
+        [JsonProperty]
+        static string id = JsonConvert.SerializeObject(new CustomResponseId() { Method = "NoOp" });
         [JsonProperty]
         static public string method = "NoOp";
         [JsonProperty("params")]

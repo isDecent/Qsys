@@ -50,6 +50,9 @@ namespace QscQsys
 
         #endregion
 
+        private const int HeartbeatInterval = 15000;
+        private const int HeartbeatTimeout = HeartbeatInterval * 3;
+
         private readonly CrestronQueue<string> _commandQueue = new CrestronQueue<string>(1000);
         private readonly CTimer _commandQueueTimer;
         private readonly CTimer _heartbeatTimer;
@@ -358,6 +361,12 @@ namespace QscQsys
                     //_backupClient.ConnectionStatus += backupClient_ConnectionStatus;
                     _backupClient.ResponseReceived += backupClient_ResponseReceived;
                     //_backupClient.ResponseString += backupClient_ResponseString;
+
+                    // The heartbeat is answered by the Core, so a silent socket means the connection is gone
+                    _primaryClient.ReceiveTimeout = HeartbeatTimeout;
+                    _backupClient.ReceiveTimeout = HeartbeatTimeout;
+                    _heartbeatTimer.Reset(HeartbeatInterval, HeartbeatInterval);
+
                     _primaryClient.Connect(primaryHost, port);
                     if(backupHost != string.Empty)
                         _backupClient.Connect(backupHost, port);
@@ -413,7 +422,8 @@ namespace QscQsys
                 if(components.Any() || controls.Any())
                     StartAutoPoll();
 
-                _heartbeatTimer.Reset(15000, 15000);
+                if (_externalConnection)
+                    _heartbeatTimer.Reset(HeartbeatInterval, HeartbeatInterval);
 
                 _logger.LogNotice("QsysProcessor is initialized.");
 
@@ -433,7 +443,9 @@ namespace QscQsys
                 _isLoggedIn = false;
                 _isInitialized = false;
 
-                _heartbeatTimer.Stop();
+                // Internal connections keep the heartbeat running so the sockets can detect a dead link
+                if (_externalConnection)
+                    _heartbeatTimer.Stop();
                 _commandQueue.Clear();
 
                 if (OnIsRegistered != null)

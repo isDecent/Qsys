@@ -1,140 +1,33 @@
-﻿<Project ToolsVersion="3.5" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProductVersion>9.0.30729</ProductVersion>
-    <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{892DEA03-20B2-4E68-BD90-15C7044FE104}</ProjectGuid>
+    <TargetFramework>net472</TargetFramework>
     <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>QscQsys</RootNamespace>
     <AssemblyName>QscQsys</AssemblyName>
-    <ProjectTypeGuids>{0B4745B0-194B-4BB6-8E21-E9057CA92500};{4D628B5B-2FBC-4AA6-8C16-197242AEB884};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
-    <PlatformFamilyName>WindowsCE</PlatformFamilyName>
-    <PlatformID>E2BECB1F-8C8C-41ba-B736-9BE7D946A398</PlatformID>
-    <OSVersion>5.0</OSVersion>
-    <DeployDirSuffix>SmartDeviceProject1</DeployDirSuffix>
-    <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
-    <NativePlatformName>Windows CE</NativePlatformName>
-    <FormFactorID>
-    </FormFactorID>
+    <LangVersion>latest</LangVersion>
+    <Configurations>Debug;Release</Configurations>
+    <!-- Keep output at bin\<Configuration>\ like the original SIMPL# project -->
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!-- AssemblyInfo.cs is maintained by hand and uses a wildcard version -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Deterministic>false</Deterministic>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <AllowedReferenceRelatedFileExtensions>.allowedReferenceRelatedFileExtensions</AllowedReferenceRelatedFileExtensions>
+
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE;</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <FileAlignment>512</FileAlignment>
-    <NoStdLib>true</NoStdLib>
-    <NoConfig>true</NoConfig>
-    <GenerateSerializationAssemblies>off</GenerateSerializationAssemblies>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
     <DocumentationFile>bin\Debug\QscQsys.xml</DocumentationFile>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <AllowedReferenceRelatedFileExtensions>.allowedReferenceRelatedFileExtensions</AllowedReferenceRelatedFileExtensions>
+
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <DebugType>none</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <FileAlignment>512</FileAlignment>
-    <NoStdLib>true</NoStdLib>
-    <NoConfig>true</NoConfig>
-    <GenerateSerializationAssemblies>off</GenerateSerializationAssemblies>
   </PropertyGroup>
+
   <ItemGroup>
-    <Reference Include="mscorlib" />
-    <Reference Include="SimplSharpCustomAttributesInterface, Version=1.0.0.0, Culture=neutral, PublicKeyToken=1099c178b3b54c3b, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>C:\ProgramData\Crestron\SDK\SimplSharpCustomAttributesInterface.dll</HintPath>
-    </Reference>
-    <Reference Include="SimplSharpHelperInterface, Version=1.0.0.0, Culture=neutral, PublicKeyToken=1099c178b3b54c3b, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>C:\ProgramData\Crestron\SDK\SimplSharpHelperInterface.dll</HintPath>
-    </Reference>
-    <Reference Include="SimplSharpNewtonsoft, Version=1.0.0.0, Culture=neutral, PublicKeyToken=1099c178b3b54c3b, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>C:\ProgramData\Crestron\SDK\SimplSharpNewtonsoft.dll</HintPath>
-    </Reference>
-    <Reference Include="SimplSharpReflectionInterface, Version=1.0.5583.25238, Culture=neutral, PublicKeyToken=1099c178b3b54c3b, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>C:\ProgramData\Crestron\SDK\SimplSharpReflectionInterface.dll</HintPath>
-    </Reference>
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Data" />
+    <!-- Builds bin\<Configuration>\QscQsys.clz for 4-Series / VC-4 -->
+    <PackageReference Include="Crestron.SimplSharp.SDK.Library" Version="2.22.40" />
   </ItemGroup>
-  <ItemGroup>
-    <Compile Include="Annotations.cs" />
-    <Compile Include="Communications\AbstractCommunicator.cs" />
-    <Compile Include="Communications\ICommunicator.cs" />
-    <Compile Include="Communications\Sockets\AbstractSocketCommunicator.cs" />
-    <Compile Include="Communications\Sockets\ConnectionStatusChangeEventArgs.cs" />
-    <Compile Include="Communications\Sockets\ConnectionStatusChangeEventHandler.cs" />
-    <Compile Include="Communications\Sockets\ConnectionStatusChangePayload.cs" />
-    <Compile Include="Communications\Sockets\ISocketCommunicator.cs" />
-    <Compile Include="Communications\Sockets\TcpClient.cs" />
-    <Compile Include="Communications\StringExtensions.cs" />
-    <Compile Include="ExtensionMethods.cs" />
-    <Compile Include="Intermediaries\AbstractIntermediaryControl.cs" />
-    <Compile Include="Intermediaries\IQsysIntermediary.cs" />
-    <Compile Include="Intermediaries\IQsysIntermediaryControl.cs" />
-    <Compile Include="Intermediaries\NamedComponent.cs" />
-    <Compile Include="Intermediaries\NamedComponentControl.cs" />
-    <Compile Include="Intermediaries\NamedControl.cs" />
-    <Compile Include="Json.cs" />
-    <Compile Include="ModuleFramework\Events\BoolEventArgs.cs" />
-    <Compile Include="ModuleFramework\Events\BoolEventHandler.cs" />
-    <Compile Include="ModuleFramework\Events\GenericEventArgs.cs" />
-    <Compile Include="ModuleFramework\Events\StringEventArgs.cs" />
-    <Compile Include="ModuleFramework\Events\StringEventHandler.cs" />
-    <Compile Include="ModuleFramework\Events\UShortEventArgs.cs" />
-    <Compile Include="ModuleFramework\Events\UShortEventHandler.cs" />
-    <Compile Include="ModuleFramework\Logging\DebugLevels.cs" />
-    <Compile Include="ModuleFramework\Logging\ILogger.cs" />
-    <Compile Include="ModuleFramework\Logging\Logger.cs" />
-    <Compile Include="NamedComponents\GenericComponentControl\AbstractGenericComponentControl.cs" />
-    <Compile Include="NamedComponents\GenericComponentControl\BoolGenericComponentControl.cs" />
-    <Compile Include="NamedComponents\GenericComponentControl\IntegerGenericComponentControl.cs" />
-    <Compile Include="NamedComponents\GenericComponentControl\ListGenericComponentControl.cs" />
-    <Compile Include="NamedComponents\GenericComponentControl\StringGenericComponentControl.cs" />
-    <Compile Include="NamedComponents\GenericComponentControl\TriggerGenericComponentControl.cs" />
-    <Compile Include="NamedComponents\QsysAes67Rx1.cs" />
-    <Compile Include="NamedComponents\QsysCameraPresets.cs" />
-    <Compile Include="NamedComponents\QsysMatrixMixerOutputFader.cs" />
-    <Compile Include="NamedComponents\QsysMatrixMixerInputFader.cs" />
-    <Compile Include="NamedComponents\QsysCameraRouter.cs" />
-    <Compile Include="NamedComponents\QsysCamera.cs" />
-    <Compile Include="NamedComponents\AbstractQsysComponent.cs" />
-    <Compile Include="NamedComponents\QsysAvStreamMediacastRouter.cs" />
-    <Compile Include="QsysCoreManager.cs" />
-    <Compile Include="QsysMatrixMixerApi.cs" />
-    <Compile Include="NamedComponents\QsysMatrixMixerCrosspoint.cs" />
-    <Compile Include="NamedComponents\QsysMatrixMixerOutputAllCrosspoints.cs" />
-    <Compile Include="NamedComponents\QsysMeter.cs" />
-    <Compile Include="NamedComponents\QsysNvDecoder.cs" />
-    <Compile Include="NamedComponents\QsysNvmDecoder.cs" />
-    <Compile Include="NamedComponents\QsysPotsController.cs" />
-    <Compile Include="QsysCore.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="QsysEvents.cs" />
-    <Compile Include="NamedComponents\QsysFader.cs" />
-    <Compile Include="NamedComponents\QsysRoomCombiner.cs" />
-    <Compile Include="NamedComponents\QsysRouter.cs" />
-    <Compile Include="NamedComponents\QsysSignalPresence.cs" />
-    <Compile Include="NamedComponents\QsysSnapshot.cs" />
-    <Compile Include="NamedComponents\QsysSoftphoneController.cs" />
-    <Compile Include="NamedControls\QsysNamedControl.cs" />
-    <Compile Include="Utils\ControlNameUtils.cs" />
-    <Compile Include="Utils\SimplUtils.cs" />
-    <None Include="Properties\ControlSystem.cfg" />
-  </ItemGroup>
-  <Import Project="$(MSBuildBinPath)\Microsoft.CompactFramework.CSharp.targets" />
-  <PropertyGroup>
-    <PostBuildEvent>rem  S# preparation will execute after these operations</PostBuildEvent>
-  </PropertyGroup>
 </Project>

@@ -12,9 +12,35 @@ namespace QscQsys.Communications.Sockets
     /// </summary>
     public sealed class TcpClient : AbstractSocketCommunicator
     {
+        private const int RetryDelay = 2500;
+        private const int ConnectTimeout = 10000;
+
         private TCPClient _client;
         private readonly CTimer _retryTimer;
+        private readonly CTimer _receiveTimeoutTimer;
         private bool _disconnectRequested;
+        private int _receiveTimeout;
+
+        /// <summary>
+        /// Gets or sets the time in milliseconds without received data after which the connection
+        /// is considered lost and is re-established. 0 disables the check.
+        /// </summary>
+        public int ReceiveTimeout
+        {
+            get { lock (MainLock) return _receiveTimeout; }
+            set
+            {
+                lock (MainLock)
+                {
+                    _receiveTimeout = value;
+
+                    if (ProtectedConnected)
+                        ResetReceiveTimeout();
+                    else
+                        _receiveTimeoutTimer.Stop();
+                }
+            }
+        }
 
         /// <summary>
         /// Initializes a new instance of the TcpClient class.
@@ -23,6 +49,8 @@ namespace QscQsys.Communications.Sockets
         {
             _retryTimer = new CTimer(x =>
                 Reconnect(), Timeout.Infinite);
+            _receiveTimeoutTimer = new CTimer(x =>
+                ReceiveTimedOut(), Timeout.Infinite);
         }
 
         /// <summary>
@@ -34,6 +62,8 @@ namespace QscQsys.Communications.Sockets
         {
             _retryTimer = new CTimer(x =>
                 Reconnect(), Timeout.Infinite);
+            _receiveTimeoutTimer = new CTimer(x =>
+                ReceiveTimedOut(), Timeout.Infinite);
         }
 
         /// <summary>
@@ -45,6 +75,8 @@ namespace QscQsys.Communications.Sockets
         {
             _retryTimer = new CTimer(x =>
                 Reconnect(), Timeout.Infinite);
+            _receiveTimeoutTimer = new CTimer(x =>
+                ReceiveTimedOut(), Timeout.Infinite);
         }
 
         /// <summary>
@@ -57,62 +89,139 @@ namespace QscQsys.Communications.Sockets
         {
             _retryTimer = new CTimer(x =>
                 Reconnect(), Timeout.Infinite);
+            _receiveTimeoutTimer = new CTimer(x =>
+                ReceiveTimedOut(), Timeout.Infinite);
         }
 
         private void ConnectToServerCallback(TCPClient client)
         {
-            if (Disposed)
-                return;
+            lock (MainLock)
+            {
+                // Ignore callbacks from a client that has already been replaced
+                if (ProtectedDisposed || client != _client)
+                    return;
 
-            if (client.ClientStatus == SocketStatus.SOCKET_STATUS_CONNECTED) return;
-            WaitAndTryReconnect();
+                if (client.ClientStatus == SocketStatus.SOCKET_STATUS_CONNECTED)
+                {
+                    if (!ProtectedConnected)
+                        Connected(client);
+                    return;
+                }
+                WaitAndTryReconnect();
+            }
+        }
+
+        /// <summary>
+        /// Must be called while holding MainLock.
+        /// </summary>
+        private void Connected(TCPClient client)
+        {
+            _retryTimer.Stop();
+            ProtectedConnected = true;
+            ResetReceiveTimeout();
+            client.ReceiveDataAsync(ReceiveCallback);
+
+            RaiseConnectionEvents(SocketStatus.SOCKET_STATUS_CONNECTED);
         }
 
         private void ReceiveCallback(TCPClient client, int numBytes)
         {
             lock (MainLock)
             {
-                if (ProtectedDisposed)
+                if (ProtectedDisposed || client == null || client != _client)
                     return;
 
-                if (client == null)
-                    return;
-
-                if (numBytes > 0)
+                // 0 or less bytes means the socket was closed or broken
+                if (numBytes <= 0)
                 {
-                    var response = new string(client.IncomingDataBuffer.Take(numBytes).Select(b => (char)b).ToArray());
-                    OnResponseReceived(new StringEventArgs(response));
+                    Logger.LogWarning("Connection closed by remote host");
+                    ConnectionLost(SocketStatus.SOCKET_STATUS_BROKEN_REMOTELY);
+                    return;
                 }
+
+                ResetReceiveTimeout();
+
+                var response = new string(client.IncomingDataBuffer.Take(numBytes).Select(b => (char)b).ToArray());
+                OnResponseReceived(new StringEventArgs(response));
             }
 
-            client.ReceiveDataAsync(ReceiveCallback);
+            var error = client.ReceiveDataAsync(ReceiveCallback);
+            if (error == SocketErrorCodes.SOCKET_OK || error == SocketErrorCodes.SOCKET_OPERATION_PENDING)
+                return;
+
+            lock (MainLock)
+            {
+                if (ProtectedDisposed || client != _client)
+                    return;
+
+                Logger.LogWarning("ReceiveDataAsync error: {0}", GetSocketErrorCodeName(error));
+                ConnectionLost(SocketStatus.SOCKET_STATUS_BROKEN_LOCALLY);
+            }
         }
 
         private void Client_SocketStatusChange(TCPClient client, SocketStatus clientSocketStatus)
         {
             lock (MainLock)
             {
-                if (ProtectedDisposed)
+                if (ProtectedDisposed || client != _client)
                     return;
-
-                if (clientSocketStatus != SocketStatus.SOCKET_STATUS_CONNECTED)
-                {
-                    ProtectedConnected = false;
-                    WaitAndTryReconnect();
-                }
-                else
-                {
-                    _client.ReceiveDataAsync(ReceiveCallback);
-                    ProtectedConnected = true;
-                }
 
                 var status = GetSocketStatusName(clientSocketStatus);
                 Logger.LogNotice("SocketStatus changed {0}", status);
 
-                OnConnectedChange(new BoolEventArgs(ProtectedConnected));
-                OnConnectionStatusChange(
-                    new ConnectionStatusChangeEventArgs(new ConnectionStatusChangePayload((ushort)clientSocketStatus,
-                        status)));
+                if (clientSocketStatus != SocketStatus.SOCKET_STATUS_CONNECTED)
+                {
+                    ConnectionLost(clientSocketStatus);
+                    return;
+                }
+
+                // Already handled by ConnectToServerCallback; arming a second receive would fail
+                if (ProtectedConnected)
+                    return;
+
+                Connected(client);
+            }
+        }
+
+        private void RaiseConnectionEvents(SocketStatus clientSocketStatus)
+        {
+            ConnectionStatus = (ushort)clientSocketStatus;
+
+            OnConnectedChange(new BoolEventArgs(ProtectedConnected));
+            OnConnectionStatusChange(
+                new ConnectionStatusChangeEventArgs(new ConnectionStatusChangePayload((ushort)clientSocketStatus,
+                    GetSocketStatusName(clientSocketStatus))));
+        }
+
+        /// <summary>
+        /// Marks the connection as lost, reports it, and schedules a reconnect if a connection is still wanted.
+        /// Must be called while holding MainLock.
+        /// </summary>
+        private void ConnectionLost(SocketStatus clientSocketStatus)
+        {
+            _receiveTimeoutTimer.Stop();
+            ProtectedConnected = false;
+
+            RaiseConnectionEvents(clientSocketStatus);
+
+            WaitAndTryReconnect();
+        }
+
+        private void ResetReceiveTimeout()
+        {
+            if (_receiveTimeout > 0)
+                _receiveTimeoutTimer.Reset(_receiveTimeout);
+        }
+
+        private void ReceiveTimedOut()
+        {
+            lock (MainLock)
+            {
+                if (ProtectedDisposed || !ProtectedConnected || _receiveTimeout <= 0)
+                    return;
+
+                Logger.LogWarning("No data received for {0} ms, connection is assumed lost", _receiveTimeout);
+                ConnectionLost(SocketStatus.SOCKET_STATUS_LINK_LOST);
             }
         }
 
@@ -135,89 +244,125 @@ namespace QscQsys.Communications.Sockets
         {
             ThrowIfDisposed();
 
+            TCPClient oldClient;
+
             lock (MainLock)
             {
                 ProtectedIpAddress = ipAddress;
                 ProtectedPort = port;
 
-                if (string.IsNullOrEmpty(ipAddress) && port <= 0)
+                if (string.IsNullOrEmpty(ipAddress) || port <= 0)
                 {
                     Logger.LogError("Host is null or emptry and/or port is set to 0");
                     return;
                 }
-                if (ProtectedConnected)
-                {
-                    Disconnect();
-                }
 
                 Logger.PrintLine("Connection starting {0}:{1}...", ipAddress, port);
                 Logger.LogNotice("Connection starting {0}:{1}...", ipAddress, port);
-                _retryTimer.Stop();
 
-                if (_client != null)
-                    _client.SocketStatusChange -= Client_SocketStatusChange;
-
-                _client = new TCPClient(ipAddress, port, 65535);
-                _client.SocketStatusChange += Client_SocketStatusChange;
-                _disconnectRequested = false;
-                var error = _client.ConnectToServerAsync(ConnectToServerCallback);
                 ConnectionRequested = true;
-                if (error != SocketErrorCodes.SOCKET_OK)
-                {
-                    Logger.PrintLine("ConnectToServerAsync error: {0}", GetSocketErrorCodeName(error));
-                    WaitAndTryReconnect();
-                }
+                _disconnectRequested = false;
+                oldClient = StartNewClient();
             }
+
+            DisposeClient(oldClient);
         }
 
         private void Reconnect()
         {
+            TCPClient oldClient;
+
             lock (MainLock)
             {
                 if (ProtectedDisposed)
                     return;
 
-                if (_client == null)
-                    return;
-
-                if (ProtectedConnected || _disconnectRequested)
+                if (ProtectedConnected || _disconnectRequested || !ConnectionRequested)
                     return;
 
                 Logger.PrintLine("Connection was not established, retrying...");
-                var error = _client.ConnectToServerAsync(ConnectToServerCallback);
+                oldClient = StartNewClient();
+            }
 
-                if (error != SocketErrorCodes.SOCKET_OK)
-                {
-                    Logger.PrintLine("ConnectToServerAsync error: {0}", GetSocketErrorCodeName(error));
-                    WaitAndTryReconnect();
-                }
+            DisposeClient(oldClient);
+        }
+
+        /// <summary>
+        /// Replaces the current client with a new one and starts connecting it. A fresh client is used for
+        /// every attempt because a TCPClient can get stuck after a failed or broken connection.
+        /// Must be called while holding MainLock. Returns the previous client, which the caller must dispose
+        /// after releasing MainLock.
+        /// </summary>
+        private TCPClient StartNewClient()
+        {
+            _retryTimer.Stop();
+            _receiveTimeoutTimer.Stop();
+
+            var oldClient = DetachClient();
+
+            if (ProtectedConnected)
+            {
+                ProtectedConnected = false;
+                RaiseConnectionEvents(SocketStatus.SOCKET_STATUS_NO_CONNECT);
+            }
+
+            _client = new TCPClient(ProtectedIpAddress, ProtectedPort, 65535);
+            _client.SocketStatusChange += Client_SocketStatusChange;
+
+            var error = _client.ConnectToServerAsync(ConnectToServerCallback);
+            if (error != SocketErrorCodes.SOCKET_OK)
+            {
+                Logger.PrintLine("ConnectToServerAsync error: {0}", GetSocketErrorCodeName(error));
+                WaitAndTryReconnect();
+            }
+            else
+            {
+                // Retry if the connect callback never arrives
+                _retryTimer.Reset(ConnectTimeout);
+            }
+
+            return oldClient;
+        }
+
+        /// <summary>
+        /// Must be called while holding MainLock.
+        /// </summary>
+        private TCPClient DetachClient()
+        {
+            var client = _client;
+            _client = null;
+
+            if (client != null)
+                client.SocketStatusChange -= Client_SocketStatusChange;
+
+            return client;
+        }
+
+        private void DisposeClient(TCPClient client)
+        {
+            if (client == null)
+                return;
+
+            try
+            {
+                client.DisconnectFromServer();
+                client.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogException(ex);
             }
         }
 
+        /// <summary>
+        /// Must be called while holding MainLock.
+        /// </summary>
         private void WaitAndTryReconnect()
         {
-            CrestronInvoke.BeginInvoke(x =>
-            {
-                lock (MainLock)
-                {
-                    if (ProtectedDisposed)
-                        return;
+            if (ProtectedDisposed || _disconnectRequested || !ConnectionRequested)
+                return;
 
-                    try
-                    {
-                        if (ProtectedConnected || _disconnectRequested || _client == null) return;
-                        _client.DisconnectFromServer();
-
-                        if (_retryTimer == null) return;
-                        _retryTimer.Reset(2500);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogException(ex);
-                    }
-
-                }
-            });
+            _retryTimer.Reset(RetryDelay);
         }
 
         /// <summary>
@@ -227,29 +372,34 @@ namespace QscQsys.Communications.Sockets
         {
             ThrowIfDisposed();
 
+            TCPClient oldClient;
+
             lock (MainLock)
             {
                 if (ProtectedDisposed)
                     return;
 
                 ConnectionRequested = false;
+                _disconnectRequested = true;
+                _retryTimer.Stop();
+                _receiveTimeoutTimer.Stop();
 
                 if (_client == null)
                     return;
 
-                if (!ProtectedConnected)
-                    return;
-
                 Logger.LogNotice("Connection closing...");
                 Logger.PrintLine("Connection closing...");
-                _disconnectRequested = true;
 
-                if (_retryTimer != null)
+                oldClient = DetachClient();
+
+                if (ProtectedConnected)
                 {
-                    _retryTimer.Stop();
+                    ProtectedConnected = false;
+                    RaiseConnectionEvents(SocketStatus.SOCKET_STATUS_NO_CONNECT);
                 }
-                _client.DisconnectFromServer();
             }
+
+            DisposeClient(oldClient);
         }
 
         /// <summary>
@@ -294,10 +444,28 @@ namespace QscQsys.Communications.Sockets
 
             try
             {
-                if (!IsConnected) return;
+                TCPClient client;
+                lock (MainLock)
+                {
+                    if (!ProtectedConnected || _client == null) return;
+                    client = _client;
+                }
+
                 var c = new string(command.Take(command.Length).Select(b => (char)b).ToArray());
                 Logger.PrintLine("Sending command -->{0}<--", c.ReplaceHex());
-                _client.SendData(command, command.Length);
+                var error = client.SendData(command, command.Length);
+
+                if (error == SocketErrorCodes.SOCKET_OK)
+                    return;
+
+                lock (MainLock)
+                {
+                    if (ProtectedDisposed || client != _client || !ProtectedConnected)
+                        return;
+
+                    Logger.LogWarning("SendData error: {0}", GetSocketErrorCodeName(error));
+                    ConnectionLost(SocketStatus.SOCKET_STATUS_BROKEN_LOCALLY);
+                }
             }
             catch (Exception ex)
             {
@@ -317,6 +485,8 @@ namespace QscQsys.Communications.Sockets
             if (ProtectedDisposed)
                 return;
 
+            TCPClient oldClient = null;
+
             lock (MainLock)
             {
                 if (ProtectedDisposed)
@@ -328,16 +498,16 @@ namespace QscQsys.Communications.Sockets
                 {
                     _retryTimer.Stop();
                     _retryTimer.Dispose();
+                    _receiveTimeoutTimer.Stop();
+                    _receiveTimeoutTimer.Dispose();
 
-                    if (_client != null)
-                    {
-                        _client.SocketStatusChange -= Client_SocketStatusChange;
-                        _client.Dispose();
-                    }
+                    oldClient = DetachClient();
 
                     ProtectedConnected = false;
                 }
             }
+
+            DisposeClient(oldClient);
         }
     }
 }
