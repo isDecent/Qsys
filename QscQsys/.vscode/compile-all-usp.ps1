@@ -1,6 +1,6 @@
 param (
     [string]$SIMPLPath = "${PSScriptRoot}\..\SIMPL",
-    [string[]]$Targets = @("series3", "series4")
+    [string[]]$Targets = @("series4")
 )
 
 Write-Host "Looking for .usp files..."
